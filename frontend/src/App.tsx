@@ -1,12 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useStore } from './store';
+import { useStore, type MarketSession, type UiMode } from './store';
 import { fetchPrice, fetchOhlc } from './api';
-import { isWithinJpSession } from './marketJp';
+import { isWithinJpSession, yen } from './marketJp';
+import { findSymbolEntry } from './symbolDirectory';
 import ChartArea from './components/ChartArea';
 import OrderForm from './components/OrderForm';
 import QuestBoard from './components/QuestBoard';
 import Tables from './components/Tables';
 import TickerSelect from './components/TickerSelect';
+
+type LayoutProps = {
+  error: string | null;
+  clock: string;
+};
 
 export default function App() {
   const symbol = useStore((state) => state.symbol);
@@ -14,6 +20,8 @@ export default function App() {
   const setCandles = useStore((state) => state.setCandles);
   const match = useStore((state) => state.match);
   const load = useStore((state) => state.load);
+  const session = useStore((state) => state.session);
+  const uiMode = useStore((state) => state.uiMode);
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
   const [clock, setClock] = useState(() => new Date());
 
@@ -33,12 +41,12 @@ export default function App() {
     async function tick() {
       if (cancelled) return;
       try {
-        if (isWithinJpSession(new Date())) {
-          const price = await fetchPrice(symbol);
+        if (shouldFetchPrice(session)) {
+          const price = await fetchPrice(symbol, session);
           setLast(price.last ?? null);
           match();
         }
-        const ohlc = await fetchOhlc(symbol, '5m', '1d');
+        const ohlc = await fetchOhlc(symbol, '5m', '1d', session);
         setCandles(ohlc.candles);
         setErrorBanner(null);
       } catch (err) {
@@ -57,7 +65,7 @@ export default function App() {
         clearTimeout(timer);
       }
     };
-  }, [match, setCandles, setLast, symbol]);
+  }, [match, session, setCandles, setLast, symbol]);
 
   const clockLabel = useMemo(
     () => clock.toLocaleString('ja-JP', { hour12: false }),
@@ -65,14 +73,33 @@ export default function App() {
   );
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${uiMode === 'kids' ? 'kids-mode' : 'classic-mode'}`}>
+      {uiMode === 'kids' ? (
+        <KidsLayout error={errorBanner} clock={clockLabel} />
+      ) : (
+        <ClassicLayout error={errorBanner} clock={clockLabel} />
+      )}
+    </div>
+  );
+}
+
+function shouldFetchPrice(session: MarketSession) {
+  if (session === 'pts') {
+    return true;
+  }
+  return isWithinJpSession(new Date());
+}
+
+function KidsLayout({ error, clock }: LayoutProps) {
+  return (
+    <>
       <div className="glow-orb orb-pink" aria-hidden />
       <div className="glow-orb orb-blue" aria-hidden />
       <div className="game-frame">
         <div className="floating-mascot" aria-hidden>
           🦊
         </div>
-        <Header error={errorBanner} clock={clockLabel} />
+        <KidsHeader error={error} clock={clock} />
         <div className="main-grid">
           <div className="chart-card">
             <div className="card-content">
@@ -92,16 +119,11 @@ export default function App() {
         </div>
         <Tables />
       </div>
-    </div>
+    </>
   );
 }
 
-type HeaderProps = {
-  error: string | null;
-  clock: string;
-};
-
-function Header({ error, clock }: HeaderProps) {
+function KidsHeader({ error, clock }: LayoutProps) {
   const symbol = useStore((state) => state.symbol);
   const account = useStore((state) => state.account);
   const last = useStore((state) => state.last);
@@ -114,6 +136,8 @@ function Header({ error, clock }: HeaderProps) {
   const progressPercent = Math.min(100, Math.round((progressRaw / step) * 100));
   const nextMilestone = step - progressRaw;
   const starCount = Math.min(5, Math.max(1, Math.floor(totalScore / (step / 2)) + 1));
+
+  const entry = findSymbolEntry(symbol);
 
   return (
     <header className="header-card">
@@ -131,6 +155,7 @@ function Header({ error, clock }: HeaderProps) {
             </span>
             {symbol}
           </span>
+          {entry && <div className="symbol-subtitle">{entry.name}</div>}
         </div>
         <TickerSelect />
       </div>
@@ -149,6 +174,7 @@ function Header({ error, clock }: HeaderProps) {
         </div>
       </div>
       <div className="header-status">
+        <ModeToggle />
         <div className="clock-pill">⏰ {clock}</div>
         <div className="badge info">参考値（遅延あり）：Yahoo Finance</div>
         {error && (
@@ -161,5 +187,88 @@ function Header({ error, clock }: HeaderProps) {
         )}
       </div>
     </header>
+  );
+}
+
+function ClassicLayout({ error, clock }: LayoutProps) {
+  return (
+    <div className="classic-frame">
+      <ClassicHeader error={error} clock={clock} />
+      <div className="classic-main-grid">
+        <section className="classic-card classic-chart-card">
+          <header className="classic-card-header">
+            <h3>価格チャート</h3>
+            <p>5分足（Yahoo Finance 遅延データ）</p>
+          </header>
+          <div className="classic-chart-shell">
+            <ChartArea />
+          </div>
+        </section>
+        <OrderForm variant="classic" />
+      </div>
+      <Tables variant="classic" />
+    </div>
+  );
+}
+
+function ClassicHeader({ error, clock }: LayoutProps) {
+  const symbol = useStore((state) => state.symbol);
+  const account = useStore((state) => state.account);
+  const last = useStore((state) => state.last);
+  const position = account.positions[symbol];
+  const unrealized = position && last != null ? (last - position.avgPrice) * position.qty : 0;
+  const entry = findSymbolEntry(symbol);
+
+  return (
+    <>
+      <header className="classic-header">
+        <div className="classic-header-left">
+          <h1>{entry?.name ?? symbol}</h1>
+          <div className="classic-symbol-line">{symbol}</div>
+          <div className="classic-inline-metrics">
+            <span>実現損益: {yen(account.realizedPnL)}</span>
+            <span>評価損益: {yen(unrealized)}</span>
+          </div>
+        </div>
+        <div className="classic-header-right">
+          <div className="classic-clock">{clock}</div>
+          <div className="classic-provider">参考値（遅延あり）：Yahoo Finance</div>
+          {error && <div className="classic-error">{error}</div>}
+          <ModeToggle />
+        </div>
+      </header>
+      <div className="classic-selector">
+        <TickerSelect />
+      </div>
+    </>
+  );
+}
+
+function ModeToggle() {
+  const uiMode = useStore((state) => state.uiMode);
+  const setUiMode = useStore((state) => state.setUiMode);
+
+  const activate = (mode: UiMode) => {
+    if (mode === uiMode) return;
+    setUiMode(mode);
+  };
+
+  return (
+    <div className="mode-toggle" role="group" aria-label="UIモード切り替え">
+      <button
+        type="button"
+        className={uiMode === 'kids' ? 'mode-button active' : 'mode-button'}
+        onClick={() => activate('kids')}
+      >
+        キッズ
+      </button>
+      <button
+        type="button"
+        className={uiMode === 'classic' ? 'mode-button active' : 'mode-button'}
+        onClick={() => activate('classic')}
+      >
+        クラシック
+      </button>
+    </div>
   );
 }

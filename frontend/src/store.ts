@@ -3,6 +3,9 @@ import { enforceLot, snapToJpTick } from './marketJp';
 import { applyTrade, matchOrders } from './trading';
 import type { Account, Candle, Order, Trade } from './types';
 
+export type MarketSession = 'regular' | 'pts';
+export type UiMode = 'kids' | 'classic';
+
 type StoreState = {
   symbol: string;
   last: number | null;
@@ -11,6 +14,8 @@ type StoreState = {
   orders: Order[];
   trades: Trade[];
   oneShare: boolean;
+  session: MarketSession;
+  uiMode: UiMode;
   setSymbol: (symbol: string) => void;
   setLast: (price: number | null) => void;
   setCandles: (candles: Candle[]) => void;
@@ -22,6 +27,8 @@ type StoreState = {
   load: () => void;
   save: () => void;
   toggleOneShare: () => void;
+  setSession: (session: MarketSession) => void;
+  setUiMode: (mode: UiMode) => void;
 };
 
 const STORAGE_KEY = 'jp-demo-trade-state';
@@ -40,6 +47,8 @@ const createInitialState = () => ({
   orders: [] as Order[],
   trades: [] as Trade[],
   oneShare: false,
+  session: 'regular' as MarketSession,
+  uiMode: 'kids' as UiMode,
 });
 
 function generateId() {
@@ -55,6 +64,15 @@ export const useStore = create<StoreState>((set, get) => ({
   },
   setLast: (price) => set({ last: price }),
   setCandles: (candles) => set({ candles }),
+  setSession: (session) => {
+    set({ session, last: null, candles: [] });
+    get().save();
+  },
+
+  setUiMode: (mode) => {
+    set({ uiMode: mode });
+    get().save();
+  },
 
   placeOrder: (order) => {
     const qty = enforceLot(order.qty, get().oneShare);
@@ -141,8 +159,18 @@ export const useStore = create<StoreState>((set, get) => ({
 
   save: () => {
     try {
-      const { symbol, last, candles, account, orders, trades, oneShare } = get();
-      const data = JSON.stringify({ symbol, last, candles, account, orders, trades, oneShare });
+      const { symbol, last, candles, account, orders, trades, oneShare, session, uiMode } = get();
+      const data = JSON.stringify({
+        symbol,
+        last,
+        candles,
+        account,
+        orders,
+        trades,
+        oneShare,
+        session,
+        uiMode,
+      });
       localStorage.setItem(STORAGE_KEY, data);
     } catch (err) {
       console.error('failed to save state', err);
@@ -155,4 +183,14 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 }));
 
-export type { Side, OrderType, OrderStatus, Order, Trade, Account, Candle, Position } from './types';
+export type {
+  Side,
+  OrderType,
+  OrderStatus,
+  Order,
+  Trade,
+  Account,
+  Candle,
+  Position,
+} from './types';
+export type { UiMode };
