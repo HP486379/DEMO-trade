@@ -1,4 +1,4 @@
-import type { Candle } from './store';
+import type { Candle, MarketSession } from './store';
 
 const BASE = import.meta.env.VITE_API_BASE || 'http://localhost:3001';
 
@@ -28,15 +28,29 @@ export type OhlcResponse = {
   candles: Candle[];
 };
 
-export async function fetchPrice(symbol: string): Promise<PriceResponse> {
-  return fetchJson<PriceResponse>(`${BASE}/api/price/${symbol}`);
+export async function fetchPrice(
+  symbol: string,
+  session: MarketSession = 'regular',
+): Promise<PriceResponse> {
+  const params = new URLSearchParams();
+  if (session === 'pts') {
+    params.set('session', 'pts');
+  }
+  const query = params.toString();
+  const url = query ? `${BASE}/api/price/${symbol}?${query}` : `${BASE}/api/price/${symbol}`;
+  return fetchJson<PriceResponse>(url);
 }
 
 export async function fetchOhlc(
   symbol: string,
   interval = '5m',
   range = '1d',
+  session: MarketSession = 'regular',
 ): Promise<OhlcResponse> {
-  const params = new URLSearchParams({ interval, range }).toString();
-  return fetchJson<OhlcResponse>(`${BASE}/api/ohlc/${symbol}?${params}`);
+  const params = new URLSearchParams({ interval, range });
+  if (session === 'pts') {
+    params.set('session', 'pts');
+  }
+  const query = params.toString();
+  return fetchJson<OhlcResponse>(`${BASE}/api/ohlc/${symbol}?${query}`);
 }

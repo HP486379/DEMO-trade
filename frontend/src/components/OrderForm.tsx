@@ -1,8 +1,12 @@
 import { FormEvent, useState } from 'react';
-import { useStore, OrderType, Side } from '../store';
+import { useStore, OrderType, Side, type UiMode } from '../store';
 import { enforceLot, snapToJpTick } from '../marketJp';
 
-export default function OrderForm() {
+type OrderFormProps = {
+  variant?: UiMode;
+};
+
+export default function OrderForm({ variant = 'kids' }: OrderFormProps) {
   const symbol = useStore((state) => state.symbol);
   const last = useStore((state) => state.last);
   const oneShare = useStore((state) => state.oneShare);
@@ -37,6 +41,66 @@ export default function OrderForm() {
       qty: lotQty,
       limitPrice: type === 'LIMIT' ? snapToJpTick(Number(limit)) : undefined,
     });
+  }
+
+  if (variant === 'classic') {
+    return (
+      <section className="classic-card classic-order-card">
+        <header className="classic-card-header">
+          <h3>注文入力</h3>
+          <p>数量と価格を確認して発注してください。</p>
+        </header>
+        <div className="classic-order-summary">
+          <span>{symbol}</span>
+          <span>現値: {last ?? '-'}</span>
+          <span>ロット: {lotQty}</span>
+        </div>
+        <form className="classic-order-form" onSubmit={submit}>
+          <label>
+            種別
+            <select value={type} onChange={(event) => setType(event.target.value as OrderType)}>
+              <option value="MARKET">成行</option>
+              <option value="LIMIT">指値</option>
+            </select>
+          </label>
+          <label>
+            売買区分
+            <select value={side} onChange={(event) => setSide(event.target.value as Side)}>
+              <option value="BUY">買い</option>
+              <option value="SELL">売り</option>
+            </select>
+          </label>
+          <label>
+            数量（株）
+            <input
+              type="number"
+              value={qty}
+              min={0}
+              onChange={(event) => setQty(Number(event.target.value))}
+            />
+            <small>発注数量: {lotQty}</small>
+          </label>
+          {type === 'LIMIT' && (
+            <label>
+              指値価格（円）
+              <input
+                type="number"
+                value={limit}
+                min={0}
+                onChange={(event) => setLimit(event.target.value === '' ? '' : Number(event.target.value))}
+              />
+              {limitPreview !== undefined && <span className="classic-hint">呼値スナップ: {limitPreview}</span>}
+            </label>
+          )}
+          <div className="classic-order-actions">
+            <button type="submit">{type === 'MARKET' ? (side === 'BUY' ? '成行で買い' : '成行で売り') : side === 'BUY' ? '指値で買い' : '指値で売り'}</button>
+            <label>
+              <input type="checkbox" checked={oneShare} onChange={toggleOneShare} /> 1株モード
+            </label>
+          </div>
+        </form>
+      </section>
+    );
   }
 
   return (

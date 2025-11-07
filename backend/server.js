@@ -24,7 +24,12 @@ function setCache(key, data) {
 }
 
 async function yahooChart(symbol, params = { interval: '5m', range: '1d' }) {
-  const query = new URLSearchParams(params).toString();
+  const prepared = Object.entries(params).reduce((acc, [key, value]) => {
+    if (value == null) return acc;
+    acc[key] = value;
+    return acc;
+  }, {});
+  const query = new URLSearchParams(prepared).toString();
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?${query}`;
   const res = await fetch(url, {
     headers: { 'User-Agent': 'Mozilla/5.0 (compatible; JP-Demo-Trade/1.0)' },
@@ -38,12 +43,18 @@ async function yahooChart(symbol, params = { interval: '5m', range: '1d' }) {
 app.get('/api/price/:symbol', async (req, res) => {
   try {
     const symbol = normalizeSymbol(req.params.symbol);
-    const cacheKey = `price:${symbol}`;
+    const session = normalizeSession(req.query.session);
+    const includePrePost = session === 'pts';
+    const cacheKey = `price:${symbol}:${session}`;
     const cached = getCache(cacheKey, 10_000);
     if (cached) {
       return res.json(cached);
     }
-    const data = await yahooChart(symbol, { interval: '1m', range: '1d' });
+    const data = await yahooChart(symbol, {
+      interval: '1m',
+      range: '1d',
+      includePrePost: includePrePost ? 'true' : undefined,
+    });
     const payload = parsePriceFromYahoo(data);
     setCache(cacheKey, payload);
     res.json(payload);
@@ -58,12 +69,18 @@ app.get('/api/ohlc/:symbol', async (req, res) => {
     const symbol = normalizeSymbol(req.params.symbol);
     const interval = req.query.interval || '5m';
     const range = req.query.range || '1d';
-    const cacheKey = `ohlc:${symbol}:${interval}:${range}`;
+    const session = normalizeSession(req.query.session);
+    const includePrePost = session === 'pts';
+    const cacheKey = `ohlc:${symbol}:${interval}:${range}:${session}`;
     const cached = getCache(cacheKey, 30_000);
     if (cached) {
       return res.json(cached);
     }
-    const data = await yahooChart(symbol, { interval, range });
+    const data = await yahooChart(symbol, {
+      interval,
+      range,
+      includePrePost: includePrePost ? 'true' : undefined,
+    });
     const payload = parseOhlcFromYahoo(symbol, interval, range, data);
     setCache(cacheKey, payload);
     res.json(payload);
@@ -75,7 +92,21 @@ app.get('/api/ohlc/:symbol', async (req, res) => {
 
 function normalizeSymbol(symbol) {
   if (!symbol) return symbol;
-  return /\.T$/.test(symbol) ? symbol : `${symbol}.T`;
+  const upper = symbol.toUpperCase();
+  if (upper.startsWith('^')) {
+    return upper;
+  }
+  if (upper.includes('.')) {
+    return upper;
+  }
+  return `${upper}.T`;
+}
+
+function normalizeSession(rawSession) {
+  if (typeof rawSession !== 'string') {
+    return 'regular';
+  }
+  return rawSession === 'pts' ? 'pts' : 'regular';
 }
 
 function parsePriceFromYahoo(resp) {
